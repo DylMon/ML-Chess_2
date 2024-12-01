@@ -69,17 +69,15 @@ class ChessGUI:
                     self.canvas.create_image(x, y, image=self.piece_images[image_key], tags="piece")
 
     def on_click(self, event):
-        """
-        Handle piece selection on mouse click.
-        """
-        col, row = event.x // 100, event.y // 100  # Convert click coordinates to board position
+        col, row = event.x // 100, event.y // 100
         piece = self.board.board[row][col]
-        if piece and piece.color == self.board.current_turn:  # Select only if it's the current player's turn
+
+        if piece and piece.color == self.board.current_turn:
             self.selected_piece = piece
             self.selected_pos = (row, col)
-            print(f"Selected {piece.__class__.__name__} at {self.selected_pos}")  # Debugging
+            print(f"{self.board.current_turn.capitalize()} selected {piece.__class__.__name__} at {self.selected_pos}")
         else:
-            print("No valid piece selected or not your turn.")  # Debugging
+            print(f"Invalid selection: It's {self.board.current_turn.capitalize()}'s turn.")
 
     def on_drag(self, event):
         """
@@ -103,11 +101,9 @@ class ChessGUI:
 
         # Attempt to move the piece
         if self.board.move_piece((start_row, start_col), (end_row, end_col)):
-            # If move is successful, toggle turn
-            self.board.toggle_turn()
-            print(f"Moved {self.selected_piece.__class__.__name__} to {(end_row, end_col)}")  # Debugging
+            print(f"Moved {self.selected_piece.__class__.__name__} to {(end_row, end_col)}")
         else:
-            print("Invalid move. Try again.")  # Debugging
+            print("Invalid move. Try again.")
 
         # Clear selection and redraw the board
         self.selected_piece = None

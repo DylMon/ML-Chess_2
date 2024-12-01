@@ -58,60 +58,116 @@ class Board:
         self.board[0][4] = King('black', (0, 4))  # Black king on top row
 
     def move_piece(self, start, end):
-        """
-        Move a piece from start to end position, if valid.
-        :param start: Tuple (row, col) starting position.
-        :param end: Tuple (row, col) ending position.
-        :return: True if the move was successful, False otherwise.
-        """
+        print(f"Attempting move: {self.current_turn.capitalize()} from {start} to {end}")
+
         piece = self.board[start[0]][start[1]]
-        if piece and piece.is_valid_move(start, end, self):
-            # Handle special moves
-            if isinstance(piece, King) and abs(end[1] - start[1]) == 2:  # Castling
-                self._handle_castling(start, end, piece)
-            elif isinstance(piece, Pawn) and abs(start[1] - end[1]) == 1 and self.is_empty(end):  # En passant
-                self._handle_en_passant(start, end, piece)
+        if not piece or piece.color != self.current_turn:
+            print(f"Invalid move: It's {self.current_turn.capitalize()}'s turn.")
+            return False
 
-            # Perform the move
-            self.board[end[0]][end[1]] = piece
-            self.board[start[0]][start[1]] = None
-            piece.position = end
-            piece.has_moved = True
-            self.last_move = (start, end)  # Update last move
+        # Handle castling
+        if isinstance(piece, King) and abs(end[1] - start[1]) == 2:  # Castling move
+            if self._handle_castling(start, end, piece):
+                self.toggle_turn()
+                return True
 
-            # Handle pawn promotion
-            if isinstance(piece, Pawn) and (end[0] == 0 or end[0] == 7):
-                self._handle_pawn_promotion(end, piece)
+        # Handle en passant
+        if isinstance(piece, Pawn) and abs(start[1] - end[1]) == 1 and self.is_empty(end):
+            last_move = self.last_move
+            if last_move:
+                last_start, last_end = last_move
+                captured_pawn = self.board[last_end[0]][last_end[1]]
+                if (
+                        captured_pawn and
+                        captured_pawn.__class__.__name__ == "Pawn" and
+                        abs(last_end[0] - last_start[0]) == 2 and
+                        last_end == (start[0], end[1])
+                ):
+                    # Simulate en passant
+                    self.board[end[0]][end[1]] = piece
+                    self.board[start[0]][start[1]] = None
+                    self.board[last_end[0]][last_end[1]] = None  # Remove the captured pawn
+                    piece.position = end
+                    self.last_move = (start, end)
 
-            # Check if the opponent's king is in check or checkmate
-            opponent_color = "black" if piece.color == "white" else "white"
-            if self.is_in_check(opponent_color):
-                print(f"{opponent_color.capitalize()} is in check!")
-                if self.is_checkmate(opponent_color):
-                    print(f"{opponent_color.capitalize()} is in checkmate! {piece.color.capitalize()} wins!")
+                    # Check if the king is still in check
+                    if self.is_in_check(self.current_turn):
+                        print(f"Invalid move: {self.current_turn.capitalize()} is still in check!")
+                        # Undo the move
+                        self.board[start[0]][start[1]] = piece
+                        self.board[end[0]][end[1]] = None
+                        self.board[last_end[0]][last_end[1]] = captured_pawn
+                        piece.position = start
+                        return False
 
-            return True
-        return False
+                    print(f"{self.current_turn.capitalize()} performed en passant.")
+                    self.toggle_turn()
+                    return True
+
+        # Standard move
+        if not self.is_legal_move(start, end, self.current_turn):
+            print(f"Invalid move: {self.current_turn.capitalize()} cannot make this move.")
+            return False
+
+        # Perform the move
+        self.board[end[0]][end[1]] = piece
+        self.board[start[0]][start[1]] = None
+        piece.position = end
+        piece.has_moved = True
+        self.last_move = (start, end)
+        print(f"{self.current_turn.capitalize()} moved {piece.__class__.__name__} to {end}")
+
+        # Handle pawn promotion
+        if isinstance(piece, Pawn) and (end[0] == 0 or end[0] == 7):
+            self._handle_pawn_promotion(end, piece)
+
+        # Check if the move resolved the check
+        if self.is_in_check(self.current_turn):
+            print(f"Invalid move: {self.current_turn.capitalize()} is still in check!")
+            # Undo the move
+            self.board[start[0]][start[1]] = piece
+            self.board[end[0]][end[1]] = None
+            piece.position = start
+            return False
+
+        # Check if the opponent's king is in check or checkmate
+        opponent_color = "black" if piece.color == "white" else "white"
+        if self.is_in_check(opponent_color):
+            print(f"{opponent_color.capitalize()} is in check!")
+            if self.is_checkmate(opponent_color):
+                print(f"{opponent_color.capitalize()} is in checkmate! {piece.color.capitalize()} wins!")
+
+        # Toggle the turn only for valid moves
+        self.toggle_turn()
+        return True
 
     def _handle_castling(self, start, end, king):
         """
         Handle castling logic.
         """
-        if end[1] > start[1]:  # Kingside castling
-            rook_start_col = 7
-            rook_end_col = end[1] - 1
-            print(f"{king.color.capitalize()} performed kingside castling.")
-        else:  # Queenside castling
-            rook_start_col = 0
-            rook_end_col = end[1] + 1
-            print(f"{king.color.capitalize()} performed queenside castling.")
+        rook_start_col = 0 if end[1] < start[1] else 7  # Determine kingside or queenside
+        rook_end_col = end[1] - 1 if end[1] > start[1] else end[1] + 1
+
+        # Ensure the rook exists and is in the correct position
+        rook = self.board[start[0]][rook_start_col]
+        if not rook or rook.color != king.color or rook.__class__.__name__ != "Rook":
+            print("Invalid castling: Rook not found or in the wrong position.")
+            return False
 
         # Move the rook
-        rook = self.board[start[0]][rook_start_col]
         self.board[start[0]][rook_end_col] = rook
         self.board[start[0]][rook_start_col] = None
         rook.position = (start[0], rook_end_col)
         rook.has_moved = True
+
+        # Move the king
+        self.board[end[0]][end[1]] = king
+        self.board[start[0]][start[1]] = None
+        king.position = end
+        king.has_moved = True
+
+        print(f"{king.color.capitalize()} performed {'kingside' if end[1] > start[1] else 'queenside'} castling.")
+        return True
 
     def _handle_en_passant(self, start, end, pawn):
         """
@@ -193,22 +249,13 @@ class Board:
         return True
 
     def is_legal_move(self, start, end, color):
-        """
-        Determine if a move is legal, ensuring it does not leave the king in check.
-        :param start: Tuple (row, col) starting position.
-        :param end: Tuple (row, col) ending position.
-        :param color: 'white' or 'black' indicating the player's color.
-        :return: True if the move is legal, False otherwise.
-        """
-        # Get the piece being moved
         piece = self.board[start[0]][start[1]]
-
-        # Basic checks: is there a piece, and does it belong to the current player?
         if not piece or piece.color != color:
+            print(f"Illegal move: No valid piece at {start} for {color}.")
             return False
 
-        # Check if the move is valid for the piece itself
-        if not piece.is_valid_move(start, end, self):  # Uses `is_valid_move` in `piece.py`
+        if not piece.is_valid_move(start, end, self):
+            print(f"Illegal move: {piece.__class__.__name__} cannot move from {start} to {end}.")
             return False
 
         # Simulate the move
@@ -225,6 +272,8 @@ class Board:
         self.board[end[0]][end[1]] = captured_piece
         piece.position = start
 
+        if king_in_check:
+            print(f"Illegal move: {color.capitalize()} would still be in check after this move.")
         return not king_in_check
 
     def toggle_turn(self):
@@ -232,6 +281,7 @@ class Board:
         Toggle the current turn between 'white' and 'black'.
         """
         self.current_turn = "black" if self.current_turn == "white" else "white"
+        print(f"Turn toggled. It's now {self.current_turn}'s turn.")  # Debugging
 
     def is_empty(self, position):
         """
