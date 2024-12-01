@@ -102,14 +102,21 @@ class ChessGUI:
         # Attempt to move the piece
         if self.board.move_piece((start_row, start_col), (end_row, end_col)):
             print(f"Moved {self.selected_piece.__class__.__name__} to {(end_row, end_col)}")
+            self.draw_board()
+            self.draw_pieces()
+
+            # AI makes a move after the player's move
+            if self.board.current_turn == "black":
+                if self.board.make_ai_move():
+                    self.draw_board()
+                    self.draw_pieces()
+
         else:
             print("Invalid move. Try again.")
 
-        # Clear selection and redraw the board
+        # Clear selection
         self.selected_piece = None
         self.selected_pos = None
-        self.draw_board()
-        self.draw_pieces()
 
 
 if __name__ == "__main__":

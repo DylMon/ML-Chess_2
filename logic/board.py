@@ -4,16 +4,18 @@ from logic.pieces.knight import Knight
 from logic.pieces.bishop import Bishop
 from logic.pieces.queen import Queen
 from logic.pieces.king import King  # Add this line
+import random
+import tensorflow as tf
+import os
+import numpy as np
 
 class Board:
     def __init__(self):
-        """
-        Initialize the chessboard with the starting position.
-        """
-        self.board = [[None for _ in range(8)] for _ in range(8)]  # 8x8 board with None
+        self.board = [[None for _ in range(8)] for _ in range(8)]
         self.initialize_pieces()
-        self.current_turn = "white"  # White starts first
+        self.current_turn = "white"
         self.last_move = None
+        self.model = self.load_model()  # Load the trained model
 
     def initialize_pieces(self):
         """
@@ -316,3 +318,142 @@ class Board:
                 if piece and piece.color != color and piece.is_valid_move((row, col), position, self):
                     return True
         return False
+
+    def load_model(self):
+        """
+        Load the trained neural network model.
+        """
+        model_path = os.path.join(os.path.dirname(__file__), "../ai/chess_model.h5")
+        try:
+            model = tf.keras.models.load_model(model_path)
+            print("Model loaded successfully.")
+            return model
+        except Exception as e:
+            print(f"Error loading model: {e}")
+            return None
+
+    def fen_to_matrix(self, fen):
+        """
+        Convert FEN string into an 8x8x12 matrix for model input.
+        """
+        import chess  # Import chess module for FEN parsing
+        board = chess.Board(fen)
+        matrix = np.zeros((8, 8, 12), dtype=int)
+
+        piece_to_channel = {
+            'P': 0, 'N': 1, 'B': 2, 'R': 3, 'Q': 4, 'K': 5,
+            'p': 6, 'n': 7, 'b': 8, 'r': 9, 'q': 10, 'k': 11
+        }
+
+        for square in chess.SQUARES:
+            piece = board.piece_at(square)
+            if piece:
+                row, col = divmod(square, 8)
+                matrix[row, col, piece_to_channel[piece.symbol()]] = 1
+
+        return matrix
+
+    def make_ai_move(self):
+        """
+        AI logic for Black using the trained neural network.
+        """
+        if not self.model:
+            print("AI cannot play: Model not loaded.")
+            return False
+
+        legal_moves = []
+        move_scores = []
+
+        # Generate all legal moves for Black
+        for start_row in range(8):
+            for start_col in range(8):
+                piece = self.board[start_row][start_col]
+                if piece and piece.color == "black":
+                    for end_row in range(8):
+                        for end_col in range(8):
+                            if piece.is_valid_move((start_row, start_col), (end_row, end_col), self):
+                                if self.is_legal_move((start_row, start_col), (end_row, end_col), "black"):
+                                    legal_moves.append(((start_row, start_col), (end_row, end_col)))
+
+        if not legal_moves:
+            if self.is_in_check("black"):
+                print("Black is in checkmate! White wins!")
+            else:
+                print("Stalemate! The game is a draw.")
+            return False
+
+        # Evaluate all legal moves
+        for move in legal_moves:
+            start, end = move
+
+            # Simulate the move
+            piece = self.board[start[0]][start[1]]
+            captured_piece = self.board[end[0]][end[1]]
+            self.board[end[0]][end[1]] = piece
+            self.board[start[0]][start[1]] = None
+            piece.position = end
+
+            # Convert the board to FEN and predict the score
+            fen = self.get_fen()  # Method to get the current board's FEN string
+            board_matrix = self.fen_to_matrix(fen)
+            score = self.model.predict(board_matrix[np.newaxis, ...])[0][0]  # Predict score
+            move_scores.append(score)
+
+            # Undo the move
+            self.board[start[0]][start[1]] = piece
+            self.board[end[0]][end[1]] = captured_piece
+            piece.position = start
+
+        # Select the move with the highest score
+        best_move_idx = np.argmax(move_scores)
+        best_move = legal_moves[best_move_idx]
+        print(f"AI selects move: {best_move} with score {move_scores[best_move_idx]}")
+
+        # Perform the best move
+        start, end = best_move
+        self.move_piece(start, end)
+        return True
+
+    def get_fen(self):
+        """
+        Generate the FEN string for the current board state.
+        :return: A FEN string representing the board.
+        """
+        import chess
+        board = chess.Board()
+        board.clear()  # Start with an empty board
+
+        # Place pieces on the board according to self.board
+        for row in range(8):
+            for col in range(8):
+                piece = self.board[row][col]
+                if piece:
+                    symbol = piece.__class__.__name__[0].lower()  # Get piece symbol
+                    if piece.color == 'white':
+                        symbol = symbol.upper()  # White pieces are uppercase
+                    square = chess.square(col, 7 - row)  # Translate to 0-indexed square
+                    board.set_piece_at(square, chess.Piece.from_symbol(symbol))
+
+        # Set the turn
+        board.turn = (self.current_turn == "white")
+
+        # Handle castling rights
+        castling_rights = ""
+        for row, rook_col in [(7, 0), (7, 7), (0, 0), (0, 7)]:
+            rook = self.board[row][rook_col]
+            if isinstance(rook, Rook) and not rook.has_moved:
+                if rook.color == 'white' and row == 7:
+                    castling_rights += "Q" if rook_col == 0 else "K"
+                elif rook.color == 'black' and row == 0:
+                    castling_rights += "q" if rook_col == 0 else "k"
+        board.set_castling_fen(castling_rights if castling_rights else "-")
+
+        # Handle en passant
+        if self.last_move:
+            start, end = self.last_move
+            if isinstance(self.board[end[0]][end[1]], Pawn):
+                if abs(start[0] - end[0]) == 2:  # Pawn moved two spaces
+                    board.ep_square = chess.square(end[1], 7 - end[0])
+
+        return board.fen()
+
